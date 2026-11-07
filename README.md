@@ -45,4 +45,4 @@ No private user data is included. Do not commit user DBs, exported reports,
 private config files, backup archives or signing keys.
 The developer email and phone above are published intentionally.
 Read PUBLISH_GITHUB.md and QA_REPORT.md before releasing.
-No open source license has been selected; see LICENSE_DECISION.md.
+**License:** [MIT](LICENSE) (SPDX: MIT) for original ProTech-owned code. Third-party components remain subject to their own licenses; see LICENSE_DECISION.md.

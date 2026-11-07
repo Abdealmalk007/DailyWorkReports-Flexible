@@ -5,7 +5,7 @@
 3. Do not import or copy the original private v15.3 / v15.4 working trees.
 4. Run public verification: python scripts/verify_public.py
 5. Review the contents with git status and git diff --cached before pushing.
-6. Choose a project license before permitting others to reuse or modify code.
+6. MIT is adopted for original ProTech-owned code; include LICENSE in any source distribution and preserve third-party notices.
 7. Upload Windows EXE and Android test APK as optional GitHub Releases assets;
    do not put compiled builds in the Git source tree.
 8. Android Debug APK is for testing; build and sign Release separately.

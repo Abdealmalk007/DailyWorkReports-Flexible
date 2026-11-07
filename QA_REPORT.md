@@ -34,4 +34,4 @@
 - Public repository source has an allowlist of reviewed files.
 - No real employee database or existing personalized company config copied.
 - Code signing certificates are not supplied. Desktop EXE may trigger SmartScreen.
-- Software license needs owner's decision before declaring an open-source license.
+- Licensing update (2026-11-07): MIT adopted for original ProTech-owned code. This post-QA documentation change does not add any runtime test results.
