@@ -46,3 +46,9 @@ private config files, backup archives or signing keys.
 The developer email and phone above are published intentionally.
 Read PUBLISH_GITHUB.md and QA_REPORT.md before releasing.
 **License:** [MIT](LICENSE) (SPDX: MIT) for original ProTech-owned code. Third-party components remain subject to their own licenses; see LICENSE_DECISION.md.
+
+## Official Project Website / Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ø§Ù„Ø±Ø³Ù…ÙŠ
+
+For features, product status and official download information, see [the Alghad Digital product page](https://alghad.digital/programs/reports/).
+
+Ø§Ù„ØªÙØ§ØµÙŠÙ„ ÙˆØ±ÙˆØ§Ø¨Ø· Ø§Ù„ØªÙ†Ø²ÙŠÙ„ Ø§Ù„Ø±Ø³Ù…ÙŠØ© Ù…ØªØ§Ø­Ø© Ø¹Ø¨Ø± [ØµÙØ­Ø© Ø§Ù„Ø¨Ø±Ù†Ø§Ù…Ø¬ ÙÙŠ Ø§Ù„ØºØ¯ Ø¯ÙŠØ¬ØªØ§Ù„](https://alghad.digital/programs/reports/).
