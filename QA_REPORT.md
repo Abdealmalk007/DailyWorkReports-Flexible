@@ -1,3 +1,8 @@
+# QA Addendum — v15.6.1
+- Source code and test-suite changes include pre-upgrade profile backup integrity/idempotency.
+- Real user data is never written during build or QA; installer test uses a different QA-only AppId.
+- Authenticode signature is not available on this Windows machine.
+
 # QA Addendum 15.6.0
 - Source self, database, export, period PDF, PDF design and Windows UI smoke tests were exercised.
 - New synthetic regression covers employee search, read-only safe migration and continuous PDF.

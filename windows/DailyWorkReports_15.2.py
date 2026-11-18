@@ -170,7 +170,7 @@ except ImportError:
 
 ARABIC_APP_NAME = "تقارير العمل اليومية"
 APP_NAME = f"{ARABIC_APP_NAME} | Daily Work Report"
-APP_VERSION = "15.6.0"
+APP_VERSION = "15.6.1"
 CONFIG_VERSION = 11
 
 REPORT_STATUSES = {
@@ -13465,7 +13465,19 @@ def main() -> None:
     root = tk.Tk()
     if "--ui-smoke-test" not in sys.argv:
         # Opt-in legacy import into an empty profile, before the first-run wizard.
-        from migration_v156 import offer_legacy_upgrade
+        from migration_v156 import ensure_update_backups, offer_legacy_upgrade
+        from tkinter import messagebox
+        try:
+            ensure_update_backups(app_data_dir())
+        except (OSError, ValueError, RuntimeError) as error:
+            messagebox.showerror(
+                "حماية بيانات التقارير",
+                "تعذر حفظ نسخة احتياطية قبل التحديث. لم يتم تعديل بياناتك.\n"
+                f"السبب: {error}",
+                parent=root,
+            )
+            root.destroy()
+            return
         offer_legacy_upgrade(root, app_data_dir())
         from public_setup_v155 import ensure_initial_configuration
         if not ensure_initial_configuration(

@@ -1,3 +1,7 @@
+# Release 15.6.1
+- In-place updater with historical installer AppId and verified backups of older profiles.
+- Does not uninstall or delete saved reports or configuration.
+
 # Release 15.6.0
 - Employee substring search + Arabic-friendly matching on Windows; searchable Android entry.
 - Compact flowing PDF tables and continuous daily report export.

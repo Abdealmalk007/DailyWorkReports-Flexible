@@ -16,7 +16,7 @@ spec = importlib.util.spec_from_file_location("daily_v156", WIN / "DailyWorkRepo
 module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
-from migration_v156 import migrate_legacy_data
+from migration_v156 import migrate_legacy_data, ensure_update_backups
 
 def run() -> None:
     names = ["أحمد سالم", "محمد عبدالرحمن", "خالد محمد", "Sarah Smith"]
@@ -38,6 +38,15 @@ def run() -> None:
         original_db = hashlib.sha256((legacy/"reports.db").read_bytes()).hexdigest()
         summary=migrate_legacy_data(legacy,target)
         assert summary["reports"]==1
+        copies = ensure_update_backups(target, legacy_dir=legacy, backup_root=base/"safety")
+        assert len(copies)==2
+        assert len(ensure_update_backups(target, legacy_dir=legacy,
+                                          backup_root=base/"safety"))==2
+        for directory in copies:
+            assert (directory/"config.json").is_file()
+            with closing(sqlite3.connect(directory/"reports.db")) as verify:
+                assert verify.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
+                assert verify.execute("SELECT COUNT(*) FROM reports").fetchone()[0]==1
         assert hashlib.sha256((legacy/"reports.db").read_bytes()).hexdigest()==original_db
         with closing(sqlite3.connect(target/"reports.db")) as db:
             assert db.execute("SELECT COUNT(*) FROM reports").fetchone()[0]==1

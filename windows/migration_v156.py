@@ -106,3 +106,105 @@ def offer_legacy_upgrade(parent, target_dir: Path) -> bool:
         parent=parent,
     )
     return True
+
+
+# Release upgrades must always preserve the original on-disk user profiles.
+# Backups are created under LOCALAPPDATA, outside the installation directory.
+# No database migration or reconfiguration occurs in this function.
+def ensure_update_backups(
+    active_dir: Path,
+    *,
+    legacy_dir: Path | None = None,
+    backup_root: Path | None = None,
+) -> list[Path]:
+    """Create verified, idempotent snapshots of pre-existing profiles.
+
+    Includes the old and flexible profiles. Never mutates a source file.
+    If backup verification fails, raise so the application aborts its startup.
+    """
+    import hashlib
+    from datetime import datetime, timezone
+
+    active_dir = Path(active_dir).resolve()
+    local = os.environ.get("LOCALAPPDATA", "")
+    if backup_root is None:
+        if not local:
+            raise ValueError("LOCALAPPDATA is missing; a safe backup location is required.")
+        backup_root = Path(local) / "ProTech" / "DailyWorkReportsUpdateBackups" / "v15.6.1"
+    backup_root = Path(backup_root).resolve()
+    if legacy_dir is None:
+        legacy_dir = Path(local) / "DailyWorkReports" if local else None
+
+    candidates = [active_dir]
+    if legacy_dir is not None and Path(legacy_dir).resolve() != active_dir:
+        candidates.append(Path(legacy_dir).resolve())
+
+    results: list[Path] = []
+    for profile in candidates:
+        db_source = profile / "reports.db"
+        conf_source = profile / "config.json"
+        if not db_source.is_file() and not conf_source.is_file():
+            continue
+        if not db_source.is_file() or not conf_source.is_file():
+            raise ValueError(f"Incomplete user profile at {profile}")
+        marker_key = hashlib.sha256(str(profile).casefold().encode("utf-8")).hexdigest()[:12]
+        target = backup_root / f"{profile.name}_{marker_key}"
+        manifest = target / "backup_manifest.json"
+        if manifest.is_file():
+            saved = json.loads(manifest.read_text(encoding="utf-8"))
+            backup_db = target / "reports.db"
+            if (
+                saved.get("backup_version") == "15.6.1"
+                and backup_db.is_file()
+                and hashlib.sha256(backup_db.read_bytes()).hexdigest() == saved.get("db_sha256")
+                and (target / "config.json").is_file()
+            ):
+                results.append(target)
+                continue
+            raise ValueError(f"Existing backup cannot be verified: {target}")
+        backup_root.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=".safe-update-", dir=backup_root))
+        try:
+            source_uri = db_source.resolve().as_uri() + "?mode=ro"
+            with closing(sqlite3.connect(source_uri, uri=True, timeout=20)) as source:
+                if source.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError(f"Source database failed integrity check: {profile}")
+                source_count = source.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
+                with closing(sqlite3.connect(staging / "reports.db", timeout=20)) as dest:
+                    source.backup(dest)
+                    dest.commit()
+            with closing(sqlite3.connect(staging / "reports.db")) as check:
+                if check.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise RuntimeError("Backup database failed integrity check")
+                if check.execute("SELECT COUNT(*) FROM reports").fetchone()[0] != source_count:
+                    raise RuntimeError("Report count mismatch after backup")
+            config = json.loads(conf_source.read_text(encoding="utf-8-sig"))
+            if not isinstance(config, dict):
+                raise ValueError("Invalid configuration JSON")
+            shutil.copy2(conf_source, staging / "config.json")
+            for name in ("history.json",):
+                original = profile / name
+                if original.is_file():
+                    shutil.copy2(original, staging / name)
+            for folder in ("drafts", "company_assets"):
+                original = profile / folder
+                if original.is_dir():
+                    shutil.copytree(original, staging / folder, symlinks=False)
+            digest = hashlib.sha256((staging / "reports.db").read_bytes()).hexdigest()
+            manifest_data = {
+                "backup_version": "15.6.1",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "profile_path": str(profile),
+                "report_count": int(source_count),
+                "db_sha256": digest,
+            }
+            (staging / "backup_manifest.json").write_text(
+                json.dumps(manifest_data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            if target.exists():
+                raise FileExistsError(f"Backup target appeared during preparation: {target}")
+            os.replace(staging, target)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        results.append(target)
+    return results

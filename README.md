@@ -65,3 +65,11 @@ Read PUBLISH_GITHUB.md and QA_REPORT.md before releasing.
 For features, product status and official download information, see [the Alghad Digital product page](https://alghad.digital/programs/reports/).
 
 التفاصيل وروابط التنزيل الرسمية: [صفحة البرنامج](https://alghad.digital/programs/reports/).
+
+## v15.6.1 — in-place Windows updater
+- Installer uses the v15.3.1 production AppId so Inno Setup recognizes previous per-user installations.
+- User reports/config are stored outside the install directory, never removed or overwritten.
+- First start takes integrity-checked, idempotent SQLite backups of legacy and flexible profiles before any possible migration.
+- Profiles already populated in v15.5+ are reused intact. Legacy v15.3 data is copied only into a blank new profile and only after explicit confirmation. Existing non-empty profiles are never overwritten or silently merged.
+- Portable v15.5 installations have no installer registration; installing the update creates a normal program entry using the same v15.5 user-data directory.
+- Unsigned Windows binaries require explicit review and may trigger SmartScreen; production code signing remains pending.
