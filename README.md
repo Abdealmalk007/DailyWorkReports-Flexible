@@ -1,3 +1,9 @@
+## Windows v15.7.0
+- Accurate per-person productivity by work type, grouped into current week, month, or all history; historic names included.
+- Calendar opens the saved report of a previous date, or resets the work entries on a new date.
+- User-data private profiles remain separate and are never included in public distribution.
+- Public setup contains a fully empty profile and no individual staff or customer records.
+
 ## Improvements in 15.6.0
 - Type any part of an employee name to filter the active section, with Arabic normalization, Ctrl+F and validation.
 - Compact flowing PDF and sequential daily reports with a one-line separator.

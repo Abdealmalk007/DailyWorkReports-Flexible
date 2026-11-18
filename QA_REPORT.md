@@ -1,3 +1,9 @@
+# Windows 15.7.0 QA
+- Data recovery: validated private profile 28 current staff, 65 reports / 857 rows.
+- Per-employee weekly/monthly/lifetime analytics checked on synthetic and private copies.
+- Public artifact explicitly excludes all private config.json, database and customer assets.
+- Unsigned preview until trusted Authenticode signing.
+
 # QA Addendum — v15.6.1
 - Source code and test-suite changes include pre-upgrade profile backup integrity/idempotency.
 - Real user data is never written during build or QA; installer test uses a different QA-only AppId.

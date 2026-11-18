@@ -170,7 +170,7 @@ except ImportError:
 
 ARABIC_APP_NAME = "تقارير العمل اليومية"
 APP_NAME = f"{ARABIC_APP_NAME} | Daily Work Report"
-APP_VERSION = "15.6.1"
+APP_VERSION = "15.7.0"
 CONFIG_VERSION = 11
 
 REPORT_STATUSES = {
@@ -415,6 +415,16 @@ def find_matching_employees(people: list[str], query: str) -> list[str]:
 
 
 def app_data_dir() -> Path:
+    # The private installer uses an isolated data profile. No private data is
+    # bundled into the public executable or uploaded to public repositories.
+    if "--private-profile" in sys.argv:
+        location = os.environ.get("LOCALAPPDATA")
+        if not location:
+            raise RuntimeError("LOCALAPPDATA is required for private profile")
+        private_dir = Path(location) / "ProTech" / "DailyWorkReportsPrivate"
+        if not _is_writable_directory(private_dir):
+            raise OSError(f"Cannot access private profile: {private_dir}")
+        return private_dir.resolve()
     override = os.environ.get("DAILY_WORK_REPORTS_DATA_DIR")
     if override:
         override_path = Path(override).expanduser().resolve()
@@ -7451,6 +7461,9 @@ class KitchensERP:
         except (OSError, sqlite3.Error):
             self.last_auto_backup = None
         self.entries: list[dict[str, Any]] = []
+        self._last_saved_entries: list[dict[str, Any]] = []
+        self._active_history_config = False
+        self._date_navigation_active = False
         self._undo_stack: list[list[dict[str, Any]]] = []
         self._redo_stack: list[list[dict[str, Any]]] = []
         self._history_limit = 50
@@ -7841,6 +7854,7 @@ class KitchensERP:
         action("سجل التقارير", self.show_history, Palette.PRIMARY)
         action("الرئيسية", self.open_modern_home, Palette.ACCENT)
 
+        action("إحصائيات الأفراد", self.show_person_performance, Palette.INFO)
         action("PDF", self.export_pdf, Palette.RED)
         action("بحث موظف", self.focus_employee_search, Palette.NAVY)
 
@@ -8416,9 +8430,84 @@ class KitchensERP:
         return self.category_id_by_label.get(self.category_var.get(), fallback)
 
     def on_date_selected(self, selected: date) -> None:
-        self.selected_date = selected
+        """Open the saved report of the chosen date, or a truly blank new day."""
+        if getattr(self, "_date_navigation_active", False) or selected == self.selected_date:
+            return
+        changed = bool(self.entries) and (
+            not self.loaded_report_id
+            or self.entries != getattr(self, "_last_saved_entries", [])
+        )
+        if changed:
+            answer = messagebox.askyesnocancel(
+                "حماية الأعمال غير المحفوظة",
+                "لديك أعمال لم تحفظ في التاريخ الحالي.\n"
+                "نعم: احفظ التقرير ثم انتقل.\n"
+                "لا: انتقل دون حفظ تغييرات التقرير الحالي.\n"
+                "إلغاء: ابق في نفس التاريخ.",
+                parent=self.root,
+            )
+            if answer is None:
+                self.calendar.set_date(self.selected_date)
+                return
+            if answer:
+                before = copy.deepcopy(self.entries)
+                self.save_to_history()
+                if self._last_saved_entries != before:
+                    self.calendar.set_date(self.selected_date)
+                    return
+        self._date_navigation_active = True
+        try:
+            self.draft_store.clear()
+            reports = self.database.list_reports(
+                selected.isoformat(), selected.isoformat()
+            )
+            reports.sort(
+                key=lambda x: (
+                    str(x.get("company_id", "") == self.current_company_id),
+                    str(x.get("updated_at", "")),
+                    str(x.get("saved_at", "")),
+                ), reverse=True
+            )
+            for meta in reports:
+                saved = self.database.get_report(str(meta["id"]))
+                if saved and isinstance(saved.get("snapshot"), dict):
+                    self.load_snapshot_for_editing(meta["id"], saved["snapshot"], saved)
+                    self.database_status_var.set(
+                        f"تقرير محفوظ بتاريخ {selected.isoformat()} | "
+                        f"{len(self.entries)} سجل"
+                    )
+                    return
+            # A new day must NEVER retain the previous date's rows/report id.
+            self._prepare_blank_day(selected)
+        finally:
+            self._date_navigation_active = False
+
+    def _prepare_blank_day(self, chosen: date) -> None:
+        """Reset the work page, retaining configured staff and departments."""
+        self.config = normalize_config(read_json(self.config_path, DEFAULT_CONFIG))
+        self._active_history_config = False
+        self.category_id_by_label = self._category_label_map()
+        self.category_combo.configure(values=list(self.category_id_by_label))
+        first = category_ids(self.config)[0]
+        self.category_var.set(self.config["categories"][first]["label"])
+        self.entries = []
+        self._last_saved_entries = []
+        self.loaded_report_id = None
+        self.loaded_report_locked = False
+        self.selected_date = chosen
+        self.calendar.set_date(chosen)
+        self.status_var.set(REPORT_STATUSES["draft"])
+        self.code_var.set(str(self.config["identity"].get("default_code", "")))
+        self.page_var.set(str(self.config["identity"].get("default_report_number", "1")))
+        self.header_title_label.config(text=self.config["identity"]["report_title"])
+        self._refresh_name_values()
+        self._rebuild_dynamic_fields()
+        self.clear_editor()
+        self.refresh_entries_tree()
         self._update_date_summary()
-        self._schedule_draft_save()
+        self.database_status_var.set(
+            f"تقرير جديد: {chosen.isoformat()} | لم تُسجل أعمال بعد"
+        )
 
     def _update_date_summary(self) -> None:
         self.date_summary_label.config(
@@ -8865,6 +8954,10 @@ class KitchensERP:
         return True
 
     def save_config(self) -> bool:
+        # A historical report can contain older staff/fields. Never overwrite
+        # current employee configuration just by viewing or closing it.
+        if getattr(self, "_active_history_config", False):
+            return True
         self._sync_identity_from_ui()
         try:
             atomic_write_json(self.config_path, self.config)
@@ -9497,6 +9590,7 @@ class KitchensERP:
                 f"تعذر حفظ التقرير:\n{error}",
             )
             return
+        self._last_saved_entries = copy.deepcopy(self.entries)
         self.database_status_var.set(
             f"محفوظ - {snapshot['date']} | قاعدة البيانات: "
             f"{self.database.count()} تقرير"
@@ -9639,6 +9733,7 @@ class KitchensERP:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         metadata = metadata or {}
+        self._active_history_config = True
         snapshot_config = normalize_config(snapshot.get("config", self.config))
         snapshot_config["identity"]["report_title"] = str(
             snapshot.get("report_title") or snapshot_config["identity"]["report_title"]
@@ -9679,6 +9774,7 @@ class KitchensERP:
         self.selected_date = loaded_date
         self.calendar.set_date(loaded_date)
         self.entries = entries_from_snapshot(snapshot)
+        self._last_saved_entries = copy.deepcopy(self.entries)
         self.loaded_report_id = report_id
         self.loaded_report_locked = bool(metadata.get("is_locked", False))
         loaded_status = str(
@@ -9698,7 +9794,7 @@ class KitchensERP:
             f"وضع التعديل: {snapshot.get('date', '')}"
             + (" | التقرير معتمد ومقفل" if self.loaded_report_locked else " - احفظ لتحديث التقرير")
         )
-        self.save_config()
+        # Do not save the historical report's configuration to the live profile.
         self._schedule_draft_save()
 
     def show_company_manager(self) -> None:
@@ -10682,6 +10778,140 @@ class KitchensERP:
             pady=6,
         ).pack(side="left", padx=6, pady=6)
         refresh_audit()
+
+    def show_person_performance(self) -> None:
+        """Accurate per-person statistics: week, month, entire stored history."""
+        from daily_productivity_v157 import employee_productivity, format_total
+        import csv
+
+        window = tk.Toplevel(self.root)
+        window.title("إحصائيات إنتاجية الموظفين | أسبوعي، شهري، كل المدة")
+        window.geometry("1240x790")
+        window.minsize(880, 580)
+        window.configure(bg=Palette.PALE)
+        window.transient(self.root)
+        tk.Label(
+            window, text="إجمالي إنجاز كل موظف حسب القسم ونوع العمل",
+            bg=Palette.NAVY, fg=Palette.WHITE,
+            font=("Arial", 17, "bold"), padx=14, pady=12
+        ).pack(fill="x")
+        toolbar = tk.Frame(window, bg=Palette.WHITE, padx=10, pady=8)
+        toolbar.pack(fill="x", padx=12, pady=10)
+        period_var = tk.StringVar(value="هذا الشهر")
+        periods = {"هذا الأسبوع": "week", "هذا الشهر": "month", "كل المدة": "all"}
+        tk.Label(toolbar, text="الفترة:", bg=Palette.WHITE,
+                 font=("Arial", 10, "bold")).pack(side="right", padx=5)
+        period_combo = ttk.Combobox(
+            toolbar, textvariable=period_var, values=list(periods),
+            state="readonly", width=16, justify="right"
+        )
+        period_combo.pack(side="right", padx=6)
+        summary_var = tk.StringVar()
+        tk.Label(toolbar, textvariable=summary_var, bg=Palette.WHITE,
+                 fg=Palette.PRIMARY_DARK, font=("Arial", 10, "bold")
+                 ).pack(side="left", padx=8)
+        notebook = ttk.Notebook(window)
+        notebook.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        people_tab = tk.Frame(notebook)
+        fields_tab = tk.Frame(notebook)
+        notebook.add(people_tab, text="إجمالي كل شخص")
+        notebook.add(fields_tab, text="تفصيل كل نوع عمل")
+
+        def tree_view(parent: tk.Misc, definitions: list[tuple[str, str, int]]) -> ttk.Treeview:
+            tree = ttk.Treeview(parent, columns=[name for name, _, _ in definitions],
+                                show="headings", height=18)
+            for name, label, width in definitions:
+                tree.heading(name, text=label)
+                tree.column(name, width=width, minwidth=80,
+                            anchor="center" if name not in {"person", "category", "field"} else "e",
+                            stretch=True)
+            scrollbar = ttk.Scrollbar(parent, command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side="left", fill="y")
+            tree.pack(side="right", fill="both", expand=True)
+            return tree
+
+        person_tree = tree_view(people_tab, [
+            ("person", "اسم الموظف", 260),
+            ("category", "القسم", 200),
+            ("records", "السجلات", 95),
+            ("days", "أيام العمل", 95),
+            ("total", "إجمالي العدد", 155),
+        ])
+        field_tree = tree_view(fields_tab, [
+            ("person", "اسم الموظف", 250), ("category", "القسم", 200),
+            ("field", "نوع العمل", 290), ("total", "مجموع العمل", 150)
+        ])
+        report: dict[str, Any] = {}
+        section_names = {
+            key: str(value.get("label", key))
+            for key, value in self.config.get("categories", {}).items()
+            if isinstance(value, dict)
+        }
+
+        def refresh(*_args: Any) -> None:
+            result = employee_productivity(
+                self.database, normalize_config(read_json(self.config_path, DEFAULT_CONFIG)),
+                periods[period_var.get()], date.today()
+            )
+            report.clear()
+            report.update(result)
+            for tree in (person_tree, field_tree):
+                for item_id in tree.get_children():
+                    tree.delete(item_id)
+            section_names = {
+                category_id: str(cat.get("label", category_id))
+                for category_id, cat in self.config.get("categories", {}).items()
+                if isinstance(cat, dict)
+            }
+            for item in result["employees"]:
+                person_tree.insert("", "end", values=(
+                    item["name"], item["category"], item["records"],
+                    item["days"], format_total(item["total"])
+                ))
+            for item in result["fields"]:
+                field_tree.insert("", "end", values=(
+                    item["person"], section_names.get(item["category_id"], item["category_id"]),
+                    item["field"], format_total(item["amount"])
+                ))
+            summary_var.set(
+                f"{result['reports']} تقرير | {result['days']} يوم | "
+                f"{len(result['employees'])} اسم | "
+                f"{sum(item['records'] for item in result['employees'])} سجل عمل"
+            )
+
+        def export_csv() -> None:
+            if not report:
+                return
+            filename = filedialog.asksaveasfilename(
+                parent=window, title="تصدير إحصائيات الموظفين",
+                defaultextension=".csv", filetypes=[("CSV", "*.csv")],
+                initialfile=f"employee_productivity_{periods[period_var.get()]}.csv",
+            )
+            if not filename:
+                return
+            try:
+                with open(filename, "w", encoding="utf-8-sig", newline="") as out:
+                    writer = csv.writer(out)
+                    writer.writerow(["الاسم", "القسم", "السجلات", "أيام العمل", "إجمالي العدد"])
+                    for item in report["employees"]:
+                        writer.writerow([item["name"], item["category"], item["records"],
+                                         item["days"], format_total(item["total"])])
+                    writer.writerow([])
+                    writer.writerow(["اسم الموظف", "القسم", "نوع العمل", "مجموع العمل"])
+                    for item in report["fields"]:
+                        writer.writerow([item["person"],
+                                         section_names.get(item["category_id"], item["category_id"]),
+                                         item["field"], format_total(item["amount"])])
+            except OSError as exc:
+                messagebox.showerror("خطأ التصدير", str(exc), parent=window)
+                return
+            messagebox.showinfo("تصدير الإحصائيات", "تم تصدير البيانات.", parent=window)
+
+        ttk.Button(toolbar, text="تحديث البيانات", command=refresh).pack(side="right", padx=5)
+        ttk.Button(toolbar, text="تصدير CSV", command=export_csv).pack(side="right", padx=5)
+        period_combo.bind("<<ComboboxSelected>>", refresh)
+        refresh()
 
     def show_dashboard(self) -> None:
         window = tk.Toplevel(self.root)
@@ -12435,7 +12665,8 @@ class KitchensERP:
             except tk.TclError:
                 pass
         self._save_current_draft()
-        self.save_config()
+        if not getattr(self, "_active_history_config", False):
+            self.save_config()
         self.root.destroy()
 
 
@@ -13523,7 +13754,7 @@ def main() -> None:
         assert app.actions_frame.winfo_exists()
         homepage = ModernHome(app)
         root.update()
-        assert "15.6" in homepage.title()
+        assert "15.7" in homepage.title()
         homepage.destroy()
         configuration = ConfigurationManager(app)
         root.update()

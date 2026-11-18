@@ -1,3 +1,7 @@
+# Windows v15.7.0
+- Staff KPI dashboard, date-aware report opening, and safe prevention of accidental switching with unsaved work.
+- Public setup ships without data; a separate local-only private installer is built outside the repository.
+
 # Release 15.6.1
 - In-place updater with historical installer AppId and verified backups of older profiles.
 - Does not uninstall or delete saved reports or configuration.

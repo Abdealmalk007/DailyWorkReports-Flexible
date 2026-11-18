@@ -29,7 +29,7 @@ a = Analysis(
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name="DailyWorkReports_Public_v15.6.1", debug=False, bootloader_ignore_signals=False,
+    name="DailyWorkReports_Public_v15.7.0", debug=False, bootloader_ignore_signals=False,
     strip=False, upx=False, console=False, icon=str(ICON),
     version=str(VERSION_FILE), uac_admin=False,
 )

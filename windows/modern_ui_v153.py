@@ -16,7 +16,7 @@ class ModernHome(tk.Toplevel):
     def __init__(self, app):
         super().__init__(app.root)
         self.app = app
-        self.title("الواجهة الرئيسية • ProTech 15.6.1")
+        self.title("الواجهة الرئيسية • ProTech 15.7.0")
         self.geometry("1050x760")
         try:
             self.state("zoomed")
@@ -58,7 +58,7 @@ class ModernHome(tk.Toplevel):
         banner.pack_propagate(False)
         tk.Label(banner, text="مرحبًا بك في تقارير العمل اليومية", bg=NAVY, fg=WHITE,
                  font=("Arial",22,"bold"), anchor="e").pack(fill="x", padx=28, pady=(18,1))
-        tk.Label(banner,text="ProTech Modern UI 15.6.1  |  إدارة أبسط، وصول أسرع، وبيانات محفوظة",
+        tk.Label(banner,text="ProTech Modern UI 15.7.0  |  إدارة أبسط، وصول أسرع، وبيانات محفوظة",
                  bg=NAVY,fg="#C7E5E1",font=("Arial",10),anchor="e").pack(fill="x",padx=28,pady=(0,12))
         outer=tk.Frame(self,bg=PALE);outer.pack(fill="both",expand=True,padx=20,pady=15)
         try: db_count=self.app.database.count(self.app.current_company_id)
