@@ -1,3 +1,10 @@
+## Windows v15.7.1 — legacy template startup hotfix
+
+- Resolves startup `KeyError: 'technicians'` when the public empty default catalog is used alongside older saved template definitions.
+- Does not alter or delete company profiles, employee rosters, reports, or historical report templates.
+- Restores startup of private installations containing 65 previous reports (tested only on an isolated local data copy, not included in this repository).
+- Download the corrected private installer directly from the authorized local PC. Private installer/data must never be uploaded to GitHub or public websites.
+- The public Windows installer is an unsigned preview and may trigger Windows SmartScreen warnings.
 ## Windows v15.7.0
 - Accurate per-person productivity by work type, grouped into current week, month, or all history; historic names included.
 - Calendar opens the saved report of a previous date, or resets the work entries on a new date.

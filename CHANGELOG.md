@@ -1,3 +1,9 @@
+# Windows v15.7.1 — Startup Compatibility Hotfix
+
+- Fix KeyError('technicians') when legacy stored templates are normalized with an empty public default category catalog.
+- No deletion or overwrite of user profiles, staff, or reports.
+- Tests cover the original historical template database and private startup using isolated data copies.
+
 # Windows v15.7.0
 - Staff KPI dashboard, date-aware report opening, and safe prevention of accidental switching with unsaved work.
 - Public setup ships without data; a separate local-only private installer is built outside the repository.

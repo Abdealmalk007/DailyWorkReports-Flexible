@@ -170,7 +170,7 @@ except ImportError:
 
 ARABIC_APP_NAME = "تقارير العمل اليومية"
 APP_NAME = f"{ARABIC_APP_NAME} | Daily Work Report"
-APP_VERSION = "15.7.0"
+APP_VERSION = "15.7.1"
 CONFIG_VERSION = 11
 
 REPORT_STATUSES = {
@@ -523,9 +523,16 @@ def canonical_builtin_fields(
     if not requested_order:
         return fields
     by_id = {str(field.get("id", "")): field for field in fields}
+    # The public edition deliberately starts with no built-in departments.
+    # Historical saved templates may predate v11 and still have built-in IDs.
+    # Never assume those IDs exist in the current blank DEFAULT_CONFIG.
+    # Existing fields, labels and order are preserved; no data is invented.
+    template_category = DEFAULT_CONFIG.get("categories", {}).get(category_id, {})
+    template_fields = template_category.get("fields", []) if isinstance(template_category, dict) else []
     defaults = {
         str(field.get("id", "")): field
-        for field in DEFAULT_CONFIG["categories"][category_id]["fields"]
+        for field in template_fields
+        if isinstance(field, dict) and str(field.get("id", ""))
     }
     ordered: list[dict[str, Any]] = []
     for field_id in requested_order:

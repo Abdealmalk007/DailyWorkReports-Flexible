@@ -18,7 +18,7 @@ a = Analysis(
         *collect_data_files("pptx"),
     ],
     hiddenimports=[
-        "daily_reports_ai", "structure_studio", "modern_ui_v153", "public_setup_v155", "migration_v156", "tkinter", "tkinter.filedialog",
+        "daily_reports_ai", "structure_studio", "modern_ui_v153", "public_setup_v155", "migration_v156", "daily_productivity_v157", "tkinter", "tkinter.filedialog",
         "tkinter.messagebox", "tkinter.simpledialog", "tkinter.ttk",
         "openpyxl", "openpyxl.chart", "openpyxl.styles",
         "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont",
@@ -29,7 +29,7 @@ a = Analysis(
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas, [],
-    name="DailyWorkReports_Public_v15.7.0", debug=False, bootloader_ignore_signals=False,
+    name="DailyWorkReports_Public_v15.7.1", debug=False, bootloader_ignore_signals=False,
     strip=False, upx=False, console=False, icon=str(ICON),
     version=str(VERSION_FILE), uac_admin=False,
 )

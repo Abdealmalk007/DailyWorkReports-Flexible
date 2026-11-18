@@ -21,7 +21,7 @@ def ensure_initial_configuration(root, config_path: Path, base_config, normalize
 
     root.withdraw()
     dialog = tk.Toplevel(root)
-    dialog.title("إعداد التقارير لأول مرة | 15.7.0")
+    dialog.title("إعداد التقارير لأول مرة | 15.7.1")
     dialog.geometry("700x610")
     dialog.minsize(620, 560)
     dialog.configure(bg="#F0F7F6")
