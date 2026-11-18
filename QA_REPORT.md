@@ -1,3 +1,8 @@
+# QA Addendum 15.6.0
+- Source self, database, export, period PDF, PDF design and Windows UI smoke tests were exercised.
+- New synthetic regression covers employee search, read-only safe migration and continuous PDF.
+- Windows installer and compiled EXE remain unsigned until trusted code signing is available.
+- Android old 15.3 package ID differs; in-place APK upgrade is not possible from that version.
 # QA Report — Daily Work Reports 15.5.0 Flexible Public Edition
 
 ## Public configuration

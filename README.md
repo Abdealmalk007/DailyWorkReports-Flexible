@@ -1,4 +1,10 @@
-# Daily Work Reports — Flexible Public Edition 15.5.0
+## Improvements in 15.6.0
+- Type any part of an employee name to filter the active section, with Arabic normalization, Ctrl+F and validation.
+- Compact flowing PDF and sequential daily reports with a one-line separator.
+- Cleaner primary actions, opt-in data migration from old Windows versions without overwrites.
+- Android searchable employee entry (test/debug build until release signing).
+- Local Windows installer and Portable EXE. Public Windows binary releases require trusted Authenticode signing per SIGNING_POLICY.md.
+# Daily Work Reports — Flexible Public Edition 15.6.0
 
 > **Current license / الترخيص الحالي: All Rights Reserved.**
 > © 2026 Abu Omar / ProTech. Prior written permission is required for use,

@@ -1,3 +1,9 @@
+# Release 15.6.0
+- Employee substring search + Arabic-friendly matching on Windows; searchable Android entry.
+- Compact flowing PDF tables and continuous daily report export.
+- Improved navigation and quick actions; Ctrl+F employee search.
+- Safe opt-in migration from old Windows profiles without overwriting old or non-empty new data.
+- New Windows Inno Setup installer recipe, build tests, and regression checks.
 # Release 15.5.0
 - No preconfigured employee list, section titles, report titles or data fields.
 - Windows interactive first-run configuration.

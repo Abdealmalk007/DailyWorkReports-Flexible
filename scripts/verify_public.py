@@ -10,7 +10,7 @@ head=src[src.index("DEFAULT_CONFIG: dict[str, Any] = {"):src.index("def make_qa_
 for expected in ('"category_order": []','"categories": {}','"report_title": ""','"company_name": ""'):
     assert expected in head,expected
 assert '"people": [' not in head and '"fields": [' not in head
-assert 'APP_VERSION = "15.5.0"' in src and "DailyWorkReportsFlexible_v155" in src
+assert 'APP_VERSION = "15.6.0"' in src and "DailyWorkReportsFlexible_v155" in src
 for expected in ('put(cfg,"category_order",new JSONArray());','put(cfg,"report_title","");','put(cfg,"categories",cats);'):
     assert expected in java,expected
 assert 'applicationId = "com.protech.dailyreports.flexible"' in (ROOT/"android/app/build.gradle.kts").read_text(encoding="utf-8")
@@ -28,4 +28,4 @@ for f in ROOT.rglob("*"):
         body=f.read_text(encoding="utf-8",errors="replace")
         assert not re.search(r"ghp_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}",body),str(f)
         assert not re.search(r"(?i)C:\\Users\\[^\s\\]+",body),str(f)
-print("DWR_PUBLIC_155_PREFLIGHT_PASS")
+print("DWR_PUBLIC_156_PREFLIGHT_PASS")

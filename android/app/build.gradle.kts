@@ -6,8 +6,8 @@ android {
         applicationId = "com.protech.dailyreports.flexible"
         minSdk = 24
         targetSdk = 35
-        versionCode = 155
-        versionName = "15.5.0-flexible"
+        versionCode = 156
+        versionName = "15.6.0-flexible"
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions {

@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 import secrets
 import shutil
 import sqlite3
@@ -139,6 +140,7 @@ try:
         SimpleDocTemplate,
         Spacer,
         Table,
+        LongTable,
         TableStyle,
     )
 
@@ -168,7 +170,7 @@ except ImportError:
 
 ARABIC_APP_NAME = "تقارير العمل اليومية"
 APP_NAME = f"{ARABIC_APP_NAME} | Daily Work Report"
-APP_VERSION = "15.5.0"
+APP_VERSION = "15.6.0"
 CONFIG_VERSION = 11
 
 REPORT_STATUSES = {
@@ -390,6 +392,26 @@ def _is_writable_directory(path: Path) -> bool:
         return True
     except OSError:
         return False
+
+
+def normalize_employee_search(value: str) -> str:
+    """Arabic-friendly normalization for matching, never used for storage."""
+    value = unicodedata.normalize("NFKC", str(value)).casefold()
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    return (value.replace("ـ", "").replace("أ", "ا").replace("إ", "ا")
+            .replace("آ", "ا").replace("ى", "ي").replace("ؤ", "و")
+            .replace("ئ", "ي").replace("ة", "ه").strip())
+
+
+def find_matching_employees(people: list[str], query: str) -> list[str]:
+    term = normalize_employee_search(query)
+    indexed = [(index, name, normalize_employee_search(name))
+               for index, name in enumerate(people)]
+    if not term:
+        return [name for _, name, _ in indexed]
+    matches = [(0 if searchable.startswith(term) else 1, index, name)
+               for index, name, searchable in indexed if term in searchable]
+    return [name for _, _, name in sorted(matches)]
 
 
 def app_data_dir() -> Path:
@@ -4568,10 +4590,8 @@ def export_pdf_to_path(snapshot: dict[str, Any], output_path: Path | str) -> Pat
             leading=table_leading,
         )
         rows_per_page = 6 if has_text_field else 8
-        chunks = [
-            logical_rows[index : index + rows_per_page]
-            for index in range(0, len(logical_rows), rows_per_page)
-        ]
+        # Natural pagination: no fixed-size chunks or forced blank lower pages.
+        chunks = [logical_rows]
         for chunk_index, chunk in enumerate(chunks):
             section_title = category["label"]
             if chunk_index:
@@ -4633,7 +4653,7 @@ def export_pdf_to_path(snapshot: dict[str, Any], output_path: Path | str) -> Pat
                 colWidths=list(reversed(logical_widths)),
                 repeatRows=1,
                 hAlign="CENTER",
-                splitByRow=0,
+                splitByRow=1,
             )
             style_commands: list[tuple[Any, ...]] = [
                 ("BACKGROUND", (0, 0), (-1, 0), pdf_primary_2),
@@ -4673,22 +4693,102 @@ def export_pdf_to_path(snapshot: dict[str, Any], output_path: Path | str) -> Pat
                     ]
                 )
             table.setStyle(TableStyle(style_commands))
-            story.extend(
-                [
-                    KeepTogether(
-                        [
-                            section_band,
-                            Spacer(1, 0.08 * cm),
-                            table,
-                        ]
-                    ),
-                    Spacer(1, 0.12 * cm),
-                ]
-            )
+            section_band.keepWithNext = True
+            story.extend([section_band, table, Spacer(1, 0.36 * cm)])
     document.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
     if not output.exists() or output.stat().st_size < 1000:
         raise RuntimeError("تعذر إنشاء ملف PDF صالح.")
     return output
+
+
+def export_sequential_pdf_to_path(
+    snapshots: list[dict[str, Any]], output_path: Path | str
+) -> Path:
+    """Create one continuous printable PDF, without artificial page breaks."""
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError("مكتبة reportlab غير متوفرة.")
+    valid = [item for item in snapshots if isinstance(item, dict) and item.get("rows")]
+    if not valid:
+        raise ValueError("لا توجد تقارير تحتوي على سجلات.")
+    regular, bold = register_pdf_fonts()
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    first = valid[0]
+    paper = A4 if str(first.get("report_orientation", "landscape")) == "portrait" else landscape(A4)
+    width = paper[0] - 2.0 * cm
+    styles = {
+        "title": ParagraphStyle("ContinuousTitle156", fontName=bold, fontSize=12,
+                                leading=15, alignment=2, textColor=colors.HexColor("#174E56")),
+        "section": ParagraphStyle("ContinuousSection156", fontName=bold, fontSize=10,
+                                  leading=13, alignment=2),
+        "header": ParagraphStyle("ContinuousHead156", fontName=bold, fontSize=8,
+                                 leading=10, alignment=1, textColor=colors.white),
+        "cell": ParagraphStyle("ContinuousCell156", fontName=regular, fontSize=8.5,
+                               leading=11, alignment=1),
+        "total": ParagraphStyle("ContinuousTotal156", fontName=bold, fontSize=8.5,
+                                leading=11, alignment=1),
+    }
+    story: list[Any] = []
+    for position, snapshot in enumerate(sorted(valid, key=lambda item: str(item.get("date", "")))):
+        if position:
+            # One compact blank text line between reports, no page break.
+            story.append(Spacer(1, 0.40 * cm))
+        name = str(snapshot.get("report_title", "تقرير العمل اليومي"))
+        report_date = str(snapshot.get("date", ""))
+        report_code = str(snapshot.get("report_number") or snapshot.get("code", ""))
+        title = f"{name} | {report_date} | {report_code}"
+        heading = _pdf_paragraph(title, styles["title"])
+        heading.keepWithNext = True
+        story.append(heading)
+        story.append(Spacer(1, 0.08 * cm))
+        for category_id in category_ids(snapshot["config"]):
+            category = snapshot["config"]["categories"][category_id]
+            fields, logical_rows, total_row = _logical_table_rows(snapshot, category_id)
+            if not logical_rows:
+                continue
+            category_heading = _pdf_paragraph(category.get("label", ""), styles["section"])
+            category_heading.keepWithNext = True
+            story.append(category_heading)
+            logical_headers = ["#", category.get("person_label", "الاسم")]
+            logical_headers += [field.get("label", "") for field in fields]
+            logical_headers.append(category.get("total_label", "الإجمالي"))
+            weights = [0.5, 2.1] + [1.9 if f.get("kind") == "text" else 1.05 for f in fields] + [1.0]
+            col_widths = [width * v / sum(weights) for v in reversed(weights)]
+            header_cells = [_pdf_paragraph(value, styles["header"]) for value in reversed(logical_headers)]
+            data = [header_cells]
+            for logical_row in logical_rows:
+                data.append([_pdf_paragraph(value, styles["cell"]) for value in reversed(logical_row)])
+            data.append([_pdf_paragraph(value, styles["total"]) for value in reversed(total_row)])
+            table = LongTable(data, repeatRows=1, colWidths=col_widths, hAlign="CENTER")
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#215B61")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2),
+                 [colors.white, colors.HexColor("#F1F6F5")]),
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#DAEAE7")),
+                ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#C5D9D6")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(table)
+            story.append(Spacer(1, 0.15 * cm))
+    document = SimpleDocTemplate(
+        str(destination), pagesize=paper,
+        leftMargin=1.0 * cm, rightMargin=1.0 * cm,
+        topMargin=1.1 * cm, bottomMargin=1.1 * cm,
+        title="تقارير العمل اليومية - متتابعة",
+    )
+    def footer(canvas: reportlab_canvas.Canvas, doc: SimpleDocTemplate) -> None:
+        canvas.saveState()
+        canvas.setFont(regular, 8)
+        canvas.drawCentredString(paper[0] / 2, 0.55 * cm, str(doc.page))
+        canvas.restoreState()
+    document.build(story, onFirstPage=footer, onLaterPages=footer)
+    if not destination.is_file() or destination.stat().st_size < 1000:
+        raise RuntimeError("لم يتم إنشاء ملف PDF صالح.")
+    return destination
 
 
 class ImageReportRenderer:
@@ -7731,17 +7831,18 @@ class KitchensERP:
             button = tk.Button(primary, text=label, command=callback, bg=color,
                                fg="#FFFFFF", activebackground=Palette.NAVY,
                                activeforeground="#FFFFFF", relief="flat", bd=0,
-                               font=("Arial", 10, "bold"), padx=13, pady=10,
+                               font=("Arial", 9, "bold"), padx=9, pady=7,
                                cursor="hand2")
-            button.pack(side="right", padx=4, pady=8)
+            button.pack(side="right", padx=3, pady=5)
             return button
         action("＋ إدخال سجل", self.add_or_update_entry, Palette.GREEN)
         action("حفظ التقرير", self.save_to_history, Palette.PRIMARY)
         action("تقرير جديد", self.clear_report, Palette.INFO)
-        action("إدارة الموظفين والحقول", self.open_structure_studio, Palette.NAVY)
         action("سجل التقارير", self.show_history, Palette.PRIMARY)
-        action("المؤشرات", self.show_dashboard, Palette.INFO)
         action("الرئيسية", self.open_modern_home, Palette.ACCENT)
+
+        action("PDF", self.export_pdf, Palette.RED)
+        action("بحث موظف", self.focus_employee_search, Palette.NAVY)
 
         secondary = tk.Frame(actions, bg=Palette.PRIMARY_LIGHT, highlightthickness=1,
                              highlightbackground=Palette.BORDER)
@@ -7805,12 +7906,20 @@ class KitchensERP:
         self.root.bind("<Control-z>", lambda _event: self.undo_entries(), add="+")
         self.root.bind("<Control-y>", lambda _event: self.redo_entries(), add="+")
         self.root.bind("<F2>", lambda _event: self.update_selected_entry(), add="+")
-        self.root.bind("<Control-f>", lambda _event: self.show_history(), add="+")
+        self.root.bind("<Control-f>", lambda _event: self.focus_employee_search(), add="+")
+
+    def focus_employee_search(self) -> str:
+        self.name_combo.focus_set()
+        self.name_combo.selection_range(0, tk.END)
+        return "break"
 
     def _on_enter_shortcut(self, event: Any) -> str | None:
         focus = self.root.focus_get()
         if isinstance(focus, (tk.Button, tk.Menubutton, ttk.Button)):
             return None
+        if focus == getattr(self, "name_combo", None):
+            self._resolve_employee_choice()
+            return "break"
         self.add_or_update_entry()
         return "break"
 
@@ -8100,11 +8209,15 @@ class KitchensERP:
         self.name_combo = ttk.Combobox(
             selector_row,
             textvariable=self.name_var,
-            state="readonly",
-            width=26,
+            state="normal",
+            width=29,
             justify="right",
         )
         self.name_combo.pack(side="right", padx=3)
+        self.name_var.trace_add("write", self._filter_employee_names)
+        self.name_combo.bind("<KeyRelease>", self._show_employee_matches, add="+")
+        self.name_combo.bind("<<ComboboxSelected>>",
+                             lambda _event: self._filter_employee_names(), add="+")
         people_menu_button = tk.Menubutton(
             selector_row, text="الأسماء ▾", bg=Palette.GREEN, fg=Palette.WHITE,
             activebackground=Palette.PRIMARY_DARK, activeforeground=Palette.WHITE,
@@ -8312,6 +8425,45 @@ class KitchensERP:
             text=f"{self.selected_date.isoformat()}  |  {arabic_day_name(self.selected_date)}"
         )
 
+    def _filter_employee_names(self, *_args: Any) -> None:
+        """Show matches within the selected section without changing saved names."""
+        people = self.config["categories"][self.current_category_id]["people"]
+        self.name_combo.configure(
+            values=find_matching_employees(people, self.name_var.get())
+        )
+
+    def _show_employee_matches(self, event: Any) -> None:
+        if event.keysym in {"Return", "Escape", "Up", "Down", "Tab"}:
+            return
+        if self.name_var.get().strip() and self.name_combo.cget("values"):
+            self.name_combo.after_idle(
+                lambda: self.name_combo.event_generate("<Down>")
+                if self.name_combo.winfo_exists() and self.name_combo.focus_get() == self.name_combo
+                else None
+            )
+
+    def _resolve_employee_choice(self) -> bool:
+        """Require selection of known staff; partial unique input resolves safely."""
+        people = self.config["categories"][self.current_category_id]["people"]
+        term = normalize_employee_search(self.name_var.get())
+        if not term:
+            messagebox.showwarning("اختيار الموظف", "اكتب اسم الموظف أولًا.")
+            return False
+        exact = [name for name in people if normalize_employee_search(name) == term]
+        if exact:
+            self.name_var.set(exact[0])
+            return True
+        candidates = find_matching_employees(people, term)
+        if len(candidates) == 1:
+            self.name_var.set(candidates[0])
+            return True
+        messagebox.showwarning(
+            "اختيار الموظف",
+            "يوجد أكثر من اسم مطابق، اختر الاسم من القائمة." if candidates
+            else "الموظف غير موجود في هذا القسم. أضفه من قائمة الأسماء أولًا."
+        )
+        return False
+
     def _refresh_name_values(self) -> None:
         category = self.config["categories"][self.current_category_id]
         people = category["people"]
@@ -8319,9 +8471,9 @@ class KitchensERP:
             self.person_selector_label.configure(
                 text=category.get("person_label", "الاسم/الجهة")
             )
-        self.name_combo.configure(values=people)
-        if self.name_var.get() not in people:
+        if self.name_var.get() and self.name_var.get() not in people:
             self.name_var.set("")
+        self._filter_employee_names()
 
     def on_category_changed(self) -> None:
         self.name_var.set("")
@@ -8538,6 +8690,8 @@ class KitchensERP:
         if self.selected_entry_id:
             self.update_selected_entry()
             return
+        if not self._resolve_employee_choice():
+            return
         name = self.name_var.get().strip()
         if not name:
             messagebox.showwarning("بيانات ناقصة", "اختر الاسم أولًا.")
@@ -8556,6 +8710,8 @@ class KitchensERP:
             return
         if not self.selected_entry_id:
             messagebox.showwarning("تنبيه", "اختر سجلًا من الجدول لتحديثه.")
+            return
+        if not self._resolve_employee_choice():
             return
         name = self.name_var.get().strip()
         if not name:
@@ -11785,24 +11941,35 @@ class KitchensERP:
             self.import_sync_reports(window, refresh_records)
 
         def export_period_pdf() -> None:
-            snapshot = snapshot_for_export()
-            if snapshot is None:
+            snapshots, label, selected = selected_snapshots()
+            if not snapshots:
+                messagebox.showwarning("لا توجد بيانات", "لا توجد تقارير محددة.", parent=window)
                 return
-            filename = filedialog.asksaveasfilename(
+            sequential = len(snapshots) > 1 and messagebox.askyesno(
+                "تنسيق التقارير",
+                "هل تريد عرض كل تقرير بتاريخِه وعنوانه، متتابعًا بفاصل سطر واحد؟\n\n"
+                "نعم: تقارير متتابعة ومضغوطة.\nلا: ملخص مجمع.",
                 parent=window,
-                title="حفظ التقرير من قاعدة البيانات بصيغة PDF",
-                defaultextension=".pdf",
-                filetypes=[("PDF", "*.pdf")],
-                initialfile=f"تقرير_دوري_{date.today().isoformat()}.pdf",
+            )
+            filename = filedialog.asksaveasfilename(
+                parent=window, title="تصدير تقارير PDF",
+                defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
+                initialfile=f"تقارير_{date.today().isoformat()}.pdf",
             )
             if not filename:
                 return
             try:
-                output = export_pdf_to_path(snapshot, filename)
-            except (OSError, RuntimeError, ValueError) as error:
+                if sequential:
+                    output = export_sequential_pdf_to_path(snapshots, filename)
+                elif selected and len(snapshots) == 1:
+                    output = export_pdf_to_path(snapshots[0], filename)
+                else:
+                    combined = combine_report_snapshots(snapshots, self.config, label)
+                    output = export_pdf_to_path(combined, filename)
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 messagebox.showerror("تعذر التصدير", str(error), parent=window)
                 return
-            messagebox.showinfo("تم التصدير", f"تم إنشاء:\n{output}", parent=window)
+            messagebox.showinfo("اكتمل التصدير", f"تم إنشاء الملف:\n{output}", parent=window)
 
         def export_period_excel() -> None:
             snapshot = snapshot_for_export()
@@ -12507,6 +12674,13 @@ def run_pdf_design_smoke_test() -> None:
         ],
     }
     config = normalize_config(config)
+    # Public QA fixtures are synthetic and intentionally never shipped as staff.
+    config["categories"]["technicians"]["people"] = [
+        f"QA Technician {i}" for i in range(1, 4)
+    ]
+    config["categories"]["showroom_employees"]["people"] = [
+        f"QA Showroom {i}" for i in range(1, 9)
+    ]
     entries: list[dict[str, Any]] = []
     for index, name in enumerate(("موظف اختبار", "موظف اختبار", "موظف اختبار"), 1):
         entries.append(
@@ -13290,6 +13464,9 @@ def main() -> None:
         return
     root = tk.Tk()
     if "--ui-smoke-test" not in sys.argv:
+        # Opt-in legacy import into an empty profile, before the first-run wizard.
+        from migration_v156 import offer_legacy_upgrade
+        offer_legacy_upgrade(root, app_data_dir())
         from public_setup_v155 import ensure_initial_configuration
         if not ensure_initial_configuration(
             root, app_data_dir() / "config.json",
@@ -13323,7 +13500,8 @@ def main() -> None:
         menu_labels = {widget.cget("text") for widget in all_menus(app.actions_frame)}
         assert "حفظ التقرير" in button_labels
         assert "الرئيسية" in button_labels
-        assert "إدارة الموظفين والحقول" in button_labels
+        assert "بحث موظف" in button_labels
+        assert "PDF" in button_labels
         assert "تقرير جديد" in button_labels
         assert {
             "ملف ▾", "إدخال ▾", "تصدير ▾", "التقارير ▾", "تخصيص ▾", "إدارة ▾"
@@ -13333,7 +13511,7 @@ def main() -> None:
         assert app.actions_frame.winfo_exists()
         homepage = ModernHome(app)
         root.update()
-        assert "15.5" in homepage.title()
+        assert "15.6" in homepage.title()
         homepage.destroy()
         configuration = ConfigurationManager(app)
         root.update()

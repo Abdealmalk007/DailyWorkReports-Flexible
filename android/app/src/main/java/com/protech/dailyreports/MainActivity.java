@@ -331,8 +331,14 @@ public class MainActivity extends Activity {
         if(names!=null)for(int i=0;i<names.length();i++)entries.add(names.optString(i));
         if(entries.isEmpty()){label("أضف موظفًا أولًا من شاشة الإدارة");button("إدارة الموظفين",()->managePeople(id));return;}
         label(c.optString("person_label","الموظف"));
-        Spinner people=new Spinner(this);
-        people.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,entries));
+        AutoCompleteTextView people=new AutoCompleteTextView(this);
+        people.setSingleLine(true);
+        people.setHint("اكتب اسم الموظف أو جزءًا منه");
+        people.setThreshold(1);
+        people.setTextSize(16);
+        ArrayAdapter<String> employeeAdapter=new ArrayAdapter<String>(
+            this,android.R.layout.simple_dropdown_item_1line,entries);
+        people.setAdapter(employeeAdapter);
         body.addView(people);
         JSONArray fields=c.optJSONArray("fields");if(fields==null)fields=new JSONArray();
         JSONObject values=new JSONObject();ArrayList<View> controls=new ArrayList<>();
@@ -360,9 +366,16 @@ public class MainActivity extends Activity {
                 String v=view instanceof Spinner ? ((Spinner)view).getSelectedItem().toString() : ((EditText)view).getText().toString();
                 put(values,fieldIds.get(i),v);
             }
+            String employeeName=people.getText().toString().trim();
+            if(!entries.contains(employeeName)){
+                Toast.makeText(this,"اختر موظفًا من القائمة المطابقة قبل الحفظ",Toast.LENGTH_LONG).show();
+                people.requestFocus();
+                people.showDropDown();
+                return;
+            }
             JSONObject row=new JSONObject();
             put(row,"id",UUID.randomUUID().toString());put(row,"date",stamp());put(row,"category",id);
-            put(row,"category_name",title(id));put(row,"person",people.getSelectedItem().toString());put(row,"values",values);
+            put(row,"category_name",title(id));put(row,"person",employeeName);put(row,"values",values);
             reports.put(row);persist();Toast.makeText(this,"تم حفظ التقرير",Toast.LENGTH_SHORT).show();history();
         });
     }
